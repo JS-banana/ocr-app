@@ -243,7 +243,7 @@ export default function OcrClient() {
                   <span>
                     {m.sizeMB} MB · {m.source === "local" ? "本站" : "远程"}
                   </span>
-                  <span className={st?.kind === "ok" ? "text-green" : st?.kind === "err" ? "text-red" : ""}>
+                  <span className={st?.kind === "ok" ? "text-green" : st?.kind === "err" ? "text-err" : ""}>
                     {st?.text}
                   </span>
                 </div>
@@ -342,7 +342,7 @@ export default function OcrClient() {
               results.map((r, i) => {
                 const ratio = r.confidence / confMax;
                 const cls =
-                  ratio > 0.7 ? "text-green" : ratio > 0.4 ? "text-yellow" : "text-muted";
+                  ratio > 0.7 ? "text-green" : ratio > 0.4 ? "text-warn" : "text-muted";
                 return (
                   <div
                     key={i}
