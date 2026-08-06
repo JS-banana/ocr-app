@@ -4,7 +4,6 @@ node_modules/
 out/
 build/
 *.tsbuildinfo
-next-env.d.ts
 
 # 模型与生成资产（scripts/download_models.sh 和 postinstall 可重新生成）
 models/
@@ -15,9 +14,31 @@ scripts/README_rec.md
 # 环境文件
 .env*
 
+# Agent 配置与本地工具
+.agents/
+.claude/
+skills-lock.json
+
+# 研究文档（本地参考资料）
+docs/
+
 # 系统与杂项
 .DS_Store
 *.pem
+Thumbs.db
+Desktop.ini
+
+# IDE 与编辑器
+.vscode/
+.idea/
+*.swp
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
 # 包管理器
 .pnp
@@ -30,10 +51,6 @@ scripts/README_rec.md
 
 # 测试与调试
 coverage/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
 
 # 平台
 .vercel
