@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>浏览器端 OCR 验证站 - onnxruntime-web</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📄</text></svg>">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262b36;
+    --text: #e6e9ef;
+    --muted: #8b93a3;
+    --accent: #4c9aff;
+    --green: #2ecc71;
+    --yellow: #f1c40f;
+    --red: #e74c3c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .header {
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .badge {
+    font-size: 12px;
+    background: rgba(76,154,255,.12);
+    color: var(--accent);
+    border: 1px solid rgba(76,154,255,.3);
+    padding: 2px 10px;
+    border-radius: 20px;
+  }
+  .status {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  .status .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status .dot.loading { background: var(--yellow); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* ===== 模型选择器 ===== */
+  .modelbar {
+    padding: 16px 32px 0;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .model-list { display: flex; gap: 12px; flex-wrap: wrap; }
+  .model-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    min-width: 230px;
+    transition: border-color .15s;
+  }
+  .model-card:hover { border-color: var(--accent); }
+  .model-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .mc-head { display: flex; align-items: center; gap: 8px; }
+  .mc-name { font-size: 14px; font-weight: 600; }
+  .mc-badge {
+    font-size: 11px;
+    background: rgba(46,204,113,.12);
+    color: var(--green);
+    border: 1px solid rgba(46,204,113,.35);
+    padding: 1px 8px;
+    border-radius: 20px;
+  }
+  .mc-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .mc-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .mc-status.ok { color: var(--green); }
+  .mc-status.err { color: var(--red); }
+
+  .model-progress-wrap { margin-top: 10px; max-width: 460px; }
+  .model-progress-wrap .progress-label { margin-bottom: 4px; }
+
+  .container {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 20px;
+    padding: 20px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .panel-title {
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .panel-title .hint { font-size: 12px; }
+
+  .dropzone {
+    min-height: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    margin: 12px;
+    transition: all .2s;
+    background: rgba(255,255,255,.02);
+    position: relative;
+    overflow: hidden;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(76,154,255,.06);
+  }
+  .dropzone canvas {
+    max-width: 100%;
+    max-height: 480px;
+    object-fit: contain;
+    display: none;
+  }
+  .dropzone .placeholder {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 2;
+    pointer-events: none;
+  }
+  .dropzone .placeholder .icon { font-size: 40px; display: block; margin-bottom: 8px; }
+  .dropzone .placeholder .sub { font-size: 12px; opacity: .7; }
+
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: filter .15s;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .results {
+    padding: 12px 16px;
+    max-height: 480px;
+    overflow-y: auto;
+  }
+  .result-row {
+    display: grid;
+    grid-template-columns: 36px 90px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+  }
+  .result-row:hover { background: rgba(255,255,255,.03); }
+  .result-row .idx { color: var(--muted); font-size: 12px; text-align: center; }
+  .result-row .conf { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .result-row .conf.high { color: var(--green); }
+  .result-row .conf.mid { color: var(--yellow); }
+  .result-row .conf.low { color: var(--muted); }
+  .result-row .text { font-size: 15px; word-break: break-all; }
+
+  .progress-wrap { padding: 0 16px 12px; }
+  .progress {
+    height: 4px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress .bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width .2s;
+  }
+  .progress-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; font-size: 13px; line-height: 2; }
+  .empty .icon { font-size: 36px; display: block; margin-bottom: 8px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.min.js"></script>
+<script>
+// 显式指定 wasm 路径，避免相对路径解析失败导致 webgl/wasm 后端不可用
+if (typeof ort !== 'undefined') {
+  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
+  ort.env.wasm.numThreads = 1; // 单线程，避免 Worker 跨域加载问题（多线程可后续优化）
+}
+</script>
+</head>
+<body>
+
+<div class="header">
+  <h1>📄 浏览器端 OCR 验证站</h1>
+  <span class="badge">onnxruntime-web · 纯本地推理</span>
+  <div class="status">
+    <span id="statusText">初始化…</span>
+    <span class="dot loading" id="statusDot"></span>
+  </div>
+</div>
+
+<div class="modelbar">
+  <div class="model-list" id="modelList"></div>
+  <div class="model-progress-wrap" id="modelProgressWrap" style="display:none">
+    <div class="progress-label" id="modelProgressLabel"></div>
+    <div class="progress"><div class="bar" id="modelProgressBar"></div></div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="panel">
+    <div class="panel-title">
+      <span>图片</span>
+      <span class="hint">拖拽或点击上传 · 全部在本地浏览器运行，图片不上传服务器</span>
+    </div>
+    <div class="dropzone" id="dropzone">
+      <canvas id="canvas"></canvas>
+      <div class="placeholder" id="placeholder">
+        <span class="icon">🖼️</span>
+        拖拽图片到这里，或点击选择图片
+        <span class="sub">支持 PNG / JPG / WebP 截图</span>
+      </div>
+    </div>
+    <div style="padding: 0 16px 16px; display: flex; gap: 10px; align-items: center;">
+      <button class="btn" id="runBtn" disabled>开始识别</button>
+      <span style="font-size:12px;color:var(--muted)" id="modelInfo"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">
+      <span>识别结果</span>
+      <span class="hint" id="resultCount"></span>
+    </div>
+    <div class="progress-wrap" id="progressWrap" style="display:none">
+      <div class="progress-label" id="progressLabel"></div>
+      <div class="progress"><div class="bar" id="progressBar"></div></div>
+    </div>
+    <div class="results" id="results">
+      <div class="empty">
+        <span class="icon">🧪</span>
+        上传图片后点击「开始识别」<br>等待模型加载完成即可使用
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

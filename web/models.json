@@ -1,0 +1,19 @@
+{
+  "models": [
+    {
+      "id": "ppocrv6-tiny",
+      "name": "PP-OCRv6 Tiny",
+      "recommended": true,
+      "sizeMB": 6.2,
+      "desc": "中英等 49 种语言，6MB，秒载",
+      "source": "local",
+      "pipeline": "ppocr-dbnet-ctc",
+      "files": {
+        "det": "models/PP-OCRv6_det_tiny.onnx",
+        "rec": "models/PP-OCRv6_rec_tiny.onnx",
+        "dict": "ppocr_keys_v6_tiny.json"
+      },
+      "params": { "detMaxSide": 960, "recHeight": 48, "recMaxWidth": 3200, "dictSize": 6906 }
+    }
+  ]
+}
