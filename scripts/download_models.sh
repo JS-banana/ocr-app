@@ -5,7 +5,7 @@ set -euo pipefail
 
 MIRROR="${HF_MIRROR:-https://hf-mirror.com}"
 BASE="$MIRROR/PaddlePaddle"
-OUT="$(cd "$(dirname "$0")/.." && pwd)/models"
+OUT="$(cd "$(dirname "$0")/.." && pwd)/public/models"
 mkdir -p "$OUT"
 
 declare -A FILES=(

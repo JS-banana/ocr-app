@@ -2,7 +2,7 @@
 
 > 2026-08-06 经 `/think` 梳理确认。本文档是网站功能的定稿方案，实施前请通读。
 
-> **2026-08-06 状态更新**：Phase 1 静态草稿（`web/`）已完成并验证。随后产品形态决策变更——`web/` 降级为验证草稿，正式产品改用 **Next.js 16.3 + Tailwind v4** 实现，位于 `ocr-web/`，技术依据见 `docs/nextjs-tailwind-research.md`。部署模型不变：`next build` 静态导出 `out/` → rsync + nginx + Cloudflare。本文档的产品逻辑（清单驱动、Cache API、后端回退、模型生命周期）在 Next.js 版中全部沿用。
+> **2026-08-06 状态更新**：Phase 1 静态草稿（`web/`）已完成并验证。随后产品形态决策变更——`web/` 降级为验证草稿（已删除），正式产品改用 **Next.js 16.3 + Tailwind v4** 实现，仓库根目录即 Next.js 工程，技术依据见 `docs/nextjs-tailwind-research.md`。部署模型不变：`next build` 静态导出 `out/` → rsync + nginx + Cloudflare。本文档的产品逻辑（清单驱动、Cache API、后端回退、模型生命周期）在 Next.js 版中全部沿用。
 
 ## 一、产品定位
 
@@ -20,7 +20,7 @@
 
 ## 三、模型生命周期（产品的"商品管理"逻辑）
 
-- 每个模型是 `web/models.json` 里的一条清单记录：名称、大小、语言、推荐标记、文件地址、流水线类型、推理参数。
+- 每个模型是 `public/models.json` 里的一条清单记录：名称、大小、语言、推荐标记、文件地址、流水线类型、推理参数。
 - `source: local` 的模型（当前仅 PP-OCRv6 tiny，约 6MB）随站点部署，走自有服务器 + Cloudflare CDN 边缘缓存。
 - `source: remote` 的模型（后续大模型）浏览器**直连 HuggingFace CDN** 下载，零字节经过自有服务器。
   - 已实测（2026-08-06）：HF `resolve` 两跳均带 CORS 头（最终 CDN 节点 `Access-Control-Allow-Origin: *`），且带 `content-length` 可显示下载进度。
@@ -30,6 +30,8 @@
 ## 四、技术方案
 
 ### 4.1 结构（零构建，原生 ES modules）
+
+> **已废弃（2026-08-06）**：以下为 web/ 草稿结构，正式产品为根目录 Next.js 工程（结构见 README.md）。保留此节仅为决策溯源。
 
 ```
 web/
@@ -96,25 +98,18 @@ models.json ──> app.js（渲染选择器）
 
 ## 六、实施 Phases（各自可独立交付）
 
-### Phase 1 — registry 驱动重构（v1 功能）
+### Phase 1 — registry 驱动重构（v1 功能）✅ 已完成（2026-08-06）
 
-1. 新建 `web/models.json`，写入 tiny 一条记录
-2. 抽 `web/js/ppocr.js`：现有 index.html 的预处理 / DBNet / CTC / 推理代码原样搬出，导出 `createPipeline(modelEntry)` 与 `run(imageData)`
-3. 新建 `web/js/loader.js`：`loadModel(entry, onProgress)` = Cache API 查询 → 流式 fetch（`response.body.getReader()` 按 content-length 报进度）→ 写缓存 → 返回 ArrayBuffer
-4. 新建 `web/js/app.js`：读清单、渲染选择器、默认选中 recommended、串联上传/识别/结果渲染
-5. 重写 `web/index.html`：保留现有样式，头部加模型选择区和加载进度条，body 只留 `<script type="module" src="js/app.js">`
-6. 验证：
-   - `cd web && python3 -m http.server 3001`，用 `test_input.png` 跑通全流程
-   - DevTools Network 确认二次加载时 onnx 来自 Cache Storage
-   - 断网刷新仍可用（模型已缓存）
+> 静态草稿版在 `web/` 完成并验证通过；随后产品形态切换为 Next.js（根目录工程），同等功能已由 `lib/ocr/` + `components/ocr-client.tsx` 实现并再次验证。草稿目录已删除。
 
 ### Phase 2 — 部署上线
 
-1. `rsync -avz --delete web/ claw:~/ocr-web/`
+1. `npm run build`（静态导出产物在 `out/`），然后 `rsync -avz --delete out/ claw:~/ocr-web/`
 2. 服务器 nginx 站点配置：root 指向该目录，gzip on；
    `location ~* \.onnx$ { add_header Cache-Control "public, max-age=2592000"; }`
+   完整配置（含 `_next/static` immutable、wasm、HTML revalidate）见 `docs/nextjs-tailwind-research.md` 第四节
 3. Cloudflare 接入域名（NS 切到 CF 或已有域加子域），开橙色云代理
-4. CF Cache Rules：`*.onnx` 与 `*.json` Edge TTL 30 天
+4. CF Cache Rules：`*.onnx`、`*.wasm` 与 `*.json` Edge TTL 30 天（`.onnx`/`.wasm` 不在 CF 默认缓存扩展名内，必须显式建规则）
 5. 验证：
    - 外网访问跑通全流程
    - `curl -I` 确认 onnx 二次请求有 `cf-cache-status: HIT`

@@ -150,18 +150,18 @@ def ctc_decode(data: np.ndarray, char_list, min_prob=0.0):
 
 
 def main():
-    img_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "web/test_input.png"
+    img_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "scripts/assets/test_input.png"
     if not img_path.exists():
         make_test_image(img_path)
     else:
         print(f"[测试] 使用图片: {img_path}")
 
     # 加载模型与字符集
-    det = ort.InferenceSession(str(ROOT / "models/PP-OCRv6_det_tiny.onnx"),
+    det = ort.InferenceSession(str(ROOT / "public/models/PP-OCRv6_det_tiny.onnx"),
                                providers=["CPUExecutionProvider"])
-    rec = ort.InferenceSession(str(ROOT / "models/PP-OCRv6_rec_tiny.onnx"),
+    rec = ort.InferenceSession(str(ROOT / "public/models/PP-OCRv6_rec_tiny.onnx"),
                                providers=["CPUExecutionProvider"])
-    dict_path = ROOT / "web/ppocr_keys_v6_tiny.json"
+    dict_path = ROOT / "public/models/ppocr_keys_v6_tiny.json"
     chars = json.loads(dict_path.read_text(encoding="utf-8"))
     char_list = ["", *chars, " "]  # blank(0) + 6904 + space = 6906
     print(f"[模型] 字符集: {len(chars)} + 2 = {len(char_list)} (模型输出维 {rec.get_outputs()[0].shape[-1]})")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 PP-OCRv6 官方 inference.yml 提取字符集，生成 web/ppocr_keys_v6_tiny.json
+"""从 PP-OCRv6 官方 inference.yml 提取字符集，生成 public/models/ppocr_keys_v6_tiny.json
 
 官方仓库已把字符集嵌在模型配置里（PostProcess.character_dict），
 无需像老教程那样解析 ONNX protobuf 元数据。
@@ -26,7 +26,8 @@ if not SRC.exists():
 cfg = yaml.safe_load(SRC.read_text(encoding="utf-8"))
 chars = cfg["PostProcess"]["character_dict"]
 
-out_path = ROOT / "web/ppocr_keys_v6_tiny.json"
+out_path = ROOT / "public/models/ppocr_keys_v6_tiny.json"
+out_path.parent.mkdir(parents=True, exist_ok=True)
 out_path.write_text(
     json.dumps(chars, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
 )
