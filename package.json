@@ -8,8 +8,9 @@
     "prebuild": "cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.* public/ort/",
     "build": "next build",
     "postinstall": "mkdir -p public/ort && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.* public/ort/",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "pnpm dlx serve@latest out",
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --test lib/ocr/ocr.test.mjs"
   },
   "dependencies": {
     "next": "16.3.0",

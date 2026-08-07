@@ -1,26 +1,127 @@
 #!/usr/bin/env bash
-# 下载 PP-OCRv6 tiny ONNX 模型（官方仓库，国内用 hf-mirror 加速）
-# 用法: bash scripts/download_models.sh
+# 下载 PP-OCRv6 ONNX 模型（官方仓库，国内用 hf-mirror 加速）
+# macOS bash 3.2 兼容：无 associative array、无 mapfile。
+#
+# 用法:
+#   bash scripts/download_models.sh --model ppocrv6-tiny
+#   bash scripts/download_models.sh --model ppocrv6-small
+#   bash scripts/download_models.sh --model ppocrv6-medium
 set -euo pipefail
 
 MIRROR="${HF_MIRROR:-https://hf-mirror.com}"
 BASE="$MIRROR/PaddlePaddle"
-OUT="$(cd "$(dirname "$0")/.." && pwd)/public/models"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/public/models"
 mkdir -p "$OUT"
 
-declare -A FILES=(
-  ["PP-OCRv6_det_tiny.onnx"]="PP-OCRv6_tiny_det_onnx"
-  ["PP-OCRv6_rec_tiny.onnx"]="PP-OCRv6_tiny_rec_onnx"
-)
-
-for out in "${!FILES[@]}"; do
-  repo="${FILES[$out]}"
-  url="$BASE/$repo/resolve/main/inference.onnx"
-  if [[ -f "$OUT/$out" ]]; then
-    echo "已存在: $out ($(du -h "$OUT/$out" | cut -f1))"
-  else
-    echo "下载: $url"
-    curl -L --fail --progress-bar "$url" -o "$OUT/$out"
-  fi
+MODEL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model)
+      if [ $# -lt 2 ]; then
+        echo "missing --model value" >&2
+        exit 2
+      fi
+      MODEL="$2"
+      shift 2
+      ;;
+    --model=*)
+      MODEL="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      echo "usage: bash scripts/download_models.sh --model ppocrv6-tiny|small|medium"
+      exit 0
+      ;;
+    *)
+      echo "unknown arg: $1" >&2
+      exit 2
+      ;;
+  esac
 done
-echo "完成: $(ls -lh "$OUT" | grep onnx)"
+
+if [ -z "$MODEL" ]; then
+  MODEL="ppocrv6-tiny"
+fi
+
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    echo "need shasum or sha256sum" >&2
+    exit 1
+  fi
+}
+
+download_atomic() {
+  _url="$1"
+  _dest="$2"
+  _tmp="${_dest}.part.$$"
+  echo "download: $_url"
+  if ! curl -L --fail --progress-bar "$_url" -o "$_tmp"; then
+    rm -f "$_tmp"
+    echo "failed: $_url" >&2
+    exit 1
+  fi
+  mv "$_tmp" "$_dest"
+  _sz=$(wc -c < "$_dest" | tr -d ' ')
+  _digest=$(sha256_file "$_dest")
+  echo "  ok $(basename "$_dest") sizeBytes=${_sz} sha256=${_digest}"
+}
+
+skip_or_fetch() {
+  _out_name="$1"
+  _repo="$2"
+  _remote="$3"
+  _dest="$4"
+  _url="${BASE}/${_repo}/resolve/main/${_remote}"
+  if [ -f "$_dest" ]; then
+    _sz=$(wc -c < "$_dest" | tr -d ' ')
+    _digest=$(sha256_file "$_dest")
+    echo "exists ${_out_name} sizeBytes=${_sz} sha256=${_digest} (skip, offline)"
+    return 0
+  fi
+  download_atomic "$_url" "$_dest"
+}
+
+case "$MODEL" in
+  ppocrv6-tiny)
+    skip_or_fetch "PP-OCRv6_det_tiny.onnx" "PP-OCRv6_tiny_det_onnx" "inference.onnx" \
+      "$OUT/PP-OCRv6_det_tiny.onnx"
+    skip_or_fetch "PP-OCRv6_rec_tiny.onnx" "PP-OCRv6_tiny_rec_onnx" "inference.onnx" \
+      "$OUT/PP-OCRv6_rec_tiny.onnx"
+    skip_or_fetch "inference_rec.yml" "PP-OCRv6_tiny_rec_onnx" "inference.yml" \
+      "$ROOT/scripts/inference_rec.yml"
+    skip_or_fetch "inference_det_tiny.yml" "PP-OCRv6_tiny_det_onnx" "inference.yml" \
+      "$ROOT/scripts/inference_det_tiny.yml"
+    echo "done: tiny assets ready under $OUT"
+    ;;
+  ppocrv6-small)
+    skip_or_fetch "PP-OCRv6_det_small.onnx" "PP-OCRv6_small_det_onnx" "inference.onnx" \
+      "$OUT/PP-OCRv6_det_small.onnx"
+    skip_or_fetch "PP-OCRv6_rec_small.onnx" "PP-OCRv6_small_rec_onnx" "inference.onnx" \
+      "$OUT/PP-OCRv6_rec_small.onnx"
+    skip_or_fetch "inference_det_small.yml" "PP-OCRv6_small_det_onnx" "inference.yml" \
+      "$ROOT/scripts/inference_det_small.yml"
+    skip_or_fetch "inference_rec_small.yml" "PP-OCRv6_small_rec_onnx" "inference.yml" \
+      "$ROOT/scripts/inference_rec_small.yml"
+    echo "done: small assets ready under $OUT"
+    ;;
+  ppocrv6-medium)
+    skip_or_fetch "PP-OCRv6_det_medium.onnx" "PP-OCRv6_medium_det_onnx" "inference.onnx" \
+      "$OUT/PP-OCRv6_det_medium.onnx"
+    skip_or_fetch "PP-OCRv6_rec_medium.onnx" "PP-OCRv6_medium_rec_onnx" "inference.onnx" \
+      "$OUT/PP-OCRv6_rec_medium.onnx"
+    skip_or_fetch "inference_det_medium.yml" "PP-OCRv6_medium_det_onnx" "inference.yml" \
+      "$ROOT/scripts/inference_det_medium.yml"
+    skip_or_fetch "inference_rec_medium.yml" "PP-OCRv6_medium_rec_onnx" "inference.yml" \
+      "$ROOT/scripts/inference_rec_medium.yml"
+    echo "done: medium assets ready under $OUT"
+    ;;
+  *)
+    echo "unknown model: $MODEL (ppocrv6-tiny|ppocrv6-small|ppocrv6-medium)" >&2
+    exit 2
+    ;;
+esac

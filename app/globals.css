@@ -1,15 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  /* 暖白纸面 + 墨色文字 + 深绿功能色 */
-  --color-bg: #f5f5f2;
+  /* 桌面产品配色（方案 6.1）：暖白底 + 白面板 + 琥珀强调 */
+  --color-bg: #f7f7f5;
   --color-panel: #ffffff;
-  --color-border: #e4e4de;
-  --color-text: #1c1d1a;
-  --color-muted: #6f7368;
-  --color-accent: #0d7a45;
-  --color-warn: #b45309;
-  --color-err: #b42318;
+  --color-border: #e1e2e4;
+  --color-text: #171717;
+  --color-muted: #6b7280;
+  --color-accent: #f0a23a;
+  /* 小号文字上的琥珀（白底对比度达标） */
+  --color-accent-ink: #8a5a0b;
+  --color-err: #d84a4a;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
@@ -23,10 +24,12 @@ body {
   font-family:
     -apple-system, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Microsoft YaHei",
     sans-serif;
+  /* 桌面边界（方案 6.2）：不支持移动布局，低于此宽度横向滚动 */
+  min-width: 1180px;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-accent) 18%, transparent);
+  background: color-mix(in oklab, var(--color-accent) 24%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

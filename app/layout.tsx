@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "浏览器端 OCR 验证站",
-  description: "所有推理在浏览器本地完成：PP-OCR + onnxruntime-web",
+  title: "本地 OCR · 图片文字识别",
+  description: "粘贴、拖入或选择图片，识别过程完全在本机完成",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

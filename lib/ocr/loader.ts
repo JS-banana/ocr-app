@@ -1,11 +1,11 @@
-// 模型文件加载：Cache API 持久化 + fetch 流式进度
-// 从 web/js/loader.js 草稿移植为 TypeScript。下载一次后离线可用。
-import type { ModelEntry } from "./types";
+// 通用资产加载：Cache API + revision 键 + 纯字节；不解析 dict、不理解模型结构
+import { assetCacheKey } from "./manifest";
+import type { AssetFile, ModelLoadProgress } from "./types";
 
 const CACHE_NAME = "ocr-models-v1";
 
 async function getCache(): Promise<Cache | null> {
-  if (!("caches" in window)) return null;
+  if (typeof window === "undefined" || !("caches" in window)) return null;
   try {
     return await caches.open(CACHE_NAME);
   } catch (e) {
@@ -14,37 +14,26 @@ async function getCache(): Promise<Cache | null> {
   }
 }
 
-export interface FileProgress {
-  pct: number;
-  loaded: number;
-  total: number;
-  fromCache: boolean;
+function assertSizeBytes(
+  buffer: ArrayBuffer,
+  expected: number,
+  url: string,
+  source: "cache" | "network",
+): void {
+  if (buffer.byteLength !== expected) {
+    throw new Error(
+      `资产字节数不匹配 (${source}): ${url} 实际 ${buffer.byteLength} ≠ 声明 sizeBytes ${expected}`,
+    );
+  }
 }
 
-/**
- * 加载单个文件：先查 Cache API，未命中则流式下载并写回缓存。
- */
-export async function loadFile(
-  url: string,
-  onProgress: (p: FileProgress) => void = () => {},
-): Promise<{ buffer: ArrayBuffer; fromCache: boolean }> {
-  const cache = await getCache();
-  if (cache) {
-    const hit = await cache.match(url);
-    if (hit) {
-      const buffer = await hit.arrayBuffer();
-      onProgress({
-        pct: 100,
-        loaded: buffer.byteLength,
-        total: buffer.byteLength,
-        fromCache: true,
-      });
-      return { buffer, fromCache: true };
-    }
-  }
-
-  // 下载前检查存储配额（仅告警，不阻断）
-  if (navigator.storage && navigator.storage.estimate) {
+async function fetchNetwork(
+  file: AssetFile,
+  key: string,
+  cache: Cache | null,
+  onBytes?: (loaded: number, fromCache: boolean) => void,
+): Promise<ArrayBuffer> {
+  if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
     try {
       const { quota, usage } = await navigator.storage.estimate();
       if (quota && usage !== undefined && quota - usage < 50 * 1024 * 1024) {
@@ -59,89 +48,165 @@ export async function loadFile(
     }
   }
 
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}: ${url}`);
-  const total = Number(resp.headers.get("content-length")) || 0;
+  const resp = await fetch(file.url);
+  if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}: ${file.url}`);
 
-  const reader = resp.body!.getReader();
-  const chunks: Uint8Array[] = [];
-  let loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.byteLength;
-    onProgress({
-      pct: total ? (loaded / total) * 100 : 0,
-      loaded,
-      total,
-      fromCache: false,
-    });
+  let buffer: ArrayBuffer;
+
+  if (!resp.body) {
+    buffer = await resp.arrayBuffer();
+    onBytes?.(buffer.byteLength, false);
+  } else {
+    const reader = resp.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      onBytes?.(loaded, false);
+    }
+
+    const merged = new Uint8Array(loaded);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.byteLength;
+    }
+    buffer = merged.buffer;
   }
 
-  const merged = new Uint8Array(loaded);
-  let offset = 0;
-  for (const c of chunks) {
-    merged.set(c, offset);
-    offset += c.byteLength;
-  }
-  const buffer = merged.buffer;
+  // 网络错配：失败且不写入缓存
+  assertSizeBytes(buffer, file.sizeBytes, file.url, "network");
 
   if (cache) {
     try {
-      await cache.put(url, new Response(buffer.slice(0)));
+      await cache.put(key, new Response(buffer.slice(0)));
     } catch (e) {
       console.warn("[loader] 缓存写入失败:", (e as Error).message);
     }
   }
+  return buffer;
+}
+
+async function loadOne(
+  file: AssetFile,
+  revision: string,
+  onBytes?: (loaded: number, fromCache: boolean) => void,
+): Promise<{ buffer: ArrayBuffer; fromCache: boolean }> {
+  const key = assetCacheKey(file.url, revision);
+  const cache = await getCache();
+
+  if (cache) {
+    const hit = await cache.match(key);
+    if (hit) {
+      const buffer = await hit.arrayBuffer();
+      if (buffer.byteLength === file.sizeBytes) {
+        onBytes?.(buffer.byteLength, true);
+        return { buffer, fromCache: true };
+      }
+      // 坏 cache：删除后走网络重取
+      console.warn(
+        `[loader] 缓存字节错配，删除后重取: ${file.url} ` +
+          `${buffer.byteLength} ≠ ${file.sizeBytes}`,
+      );
+      try {
+        await cache.delete(key);
+      } catch (e) {
+        console.warn("[loader] 坏缓存删除失败:", (e as Error).message);
+      }
+    }
+  }
+
+  const buffer = await fetchNetwork(file, key, cache, onBytes);
   return { buffer, fromCache: false };
 }
 
-const FILE_LABELS: Record<string, string> = {
-  det: "检测模型",
-  rec: "识别模型",
-  dict: "字符集",
-};
-
-export interface ModelFiles {
-  det: ArrayBuffer;
-  rec: ArrayBuffer;
-  dict: string[];
-  allFromCache: boolean;
-}
-
 /**
- * 按清单条目加载一整套模型文件（det / rec / dict）。
- * 整体进度按文件均摊，逐文件内部按字节汇报。
+ * 按文件描述加载字节。cache key = url?rev=revision。
+ * 进度按 sizeBytes 加权；无法确定总大小时 pct 为 null。
+ * 最终 buffer.byteLength 必须等于声明 sizeBytes。
  */
-export async function loadModelFiles(
-  entry: ModelEntry,
-  onProgress: (p: { pct: number; label: string; fromCache: boolean }) => void = () => {},
-): Promise<ModelFiles> {
-  const keys = ["det", "rec", "dict"] as const;
-  const out: Partial<Record<(typeof keys)[number], ArrayBuffer | string[]>> = {};
-  let allFromCache = true;
+export async function loadAssets(
+  files: Readonly<Record<string, AssetFile>>,
+  revision: string,
+  onProgress?: (progress: ModelLoadProgress) => void,
+): Promise<{
+  files: Record<string, ArrayBuffer>;
+  source: "cache" | "network" | "mixed";
+}> {
+  const entries = Object.entries(files);
+  const totalKnown = entries.reduce((s, [, f]) => s + f.sizeBytes, 0);
+  const out: Record<string, ArrayBuffer> = {};
+  let cacheHits = 0;
+  let networkGets = 0;
+  const loadedPerKey: Record<string, number> = {};
 
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    const result = await loadFile(entry.files[key], (p) => {
-      onProgress({
-        label: `${FILE_LABELS[key]} (${i + 1}/${keys.length})`,
-        pct: ((i + p.pct / 100) / keys.length) * 100,
-        fromCache: p.fromCache,
-      });
+  const report = (label: string, fromCache: boolean) => {
+    if (!onProgress) return;
+    if (!(totalKnown > 0)) {
+      onProgress({ pct: null, label, fromCache });
+      return;
+    }
+    let weighted = 0;
+    for (const [k, f] of entries) {
+      const got = loadedPerKey[k] ?? 0;
+      weighted += Math.min(got, f.sizeBytes);
+    }
+    onProgress({
+      pct: Math.min(100, (weighted / totalKnown) * 100),
+      label,
+      fromCache,
     });
-    allFromCache = allFromCache && result.fromCache;
-    out[key] =
-      key === "dict"
-        ? (JSON.parse(new TextDecoder().decode(result.buffer)) as string[])
-        : result.buffer;
+  };
+
+  for (const [key, file] of entries) {
+    const label = `下载 ${key}`;
+    const result = await loadOne(file, revision, (loaded, fromCache) => {
+      loadedPerKey[key] = loaded;
+      report(fromCache ? "读取本机缓存" : label, fromCache);
+    });
+    loadedPerKey[key] = file.sizeBytes;
+    out[key] = result.buffer;
+    if (result.fromCache) cacheHits++;
+    else networkGets++;
+    report(result.fromCache ? "读取本机缓存" : label, result.fromCache);
   }
 
-  return {
-    det: out.det as ArrayBuffer,
-    rec: out.rec as ArrayBuffer,
-    dict: out.dict as string[],
-    allFromCache,
-  };
+  let source: "cache" | "network" | "mixed";
+  if (networkGets === 0) source = "cache";
+  else if (cacheHits === 0) source = "network";
+  else source = "mixed";
+
+  return { files: out, source };
+}
+
+/** 按整份 catalog 有效 key 集合清理；不在集合内的条目删除 */
+export async function pruneAssetCache(
+  validCacheKeys: ReadonlySet<string>,
+): Promise<void> {
+  const cache = await getCache();
+  if (!cache) return;
+  try {
+    const keys = await cache.keys();
+    await Promise.all(
+      keys.map(async (req) => {
+        const keyUrl = typeof req === "string" ? req : req.url;
+        // Cache API 可能存绝对 URL；用 pathname+search 或完整串比对
+        let rel = keyUrl;
+        try {
+          const u = new URL(keyUrl, "http://localhost");
+          rel = u.pathname + u.search;
+        } catch {
+          /* keep */
+        }
+        if (!validCacheKeys.has(rel) && !validCacheKeys.has(keyUrl)) {
+          await cache.delete(req);
+        }
+      }),
+    );
+  } catch (e) {
+    console.warn("[loader] 缓存清理失败:", (e as Error).message);
+  }
 }

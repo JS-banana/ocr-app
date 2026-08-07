@@ -1,30 +1,37 @@
-// PP-OCR 流水线：DBNet 检测 + CTC 识别
-// 从 web/js/ppocr.js 草稿移植为 TypeScript，预处理 / 后处理 / 推理逻辑不变。
+// PP-OCR 流水线：DBNet 检测 + CTC 识别（最终 Module 位置）
 // 只能被客户端模块引用（onnxruntime-web 的 exports 对 node 显式禁用）。
-// 全量导入：/webgpu 条件导入不含 webgl 后端（"backend not found"），
-// 而 webgl 是 iOS/Safari 唯一的 GPU 兜底，必须用包含全部 EP 的主入口。
+// 全量导入：/webgpu 条件导入不含 webgl 后端，而 webgl 是 iOS/Safari 的 GPU 兜底。
 import * as ort from "onnxruntime-web";
-import type { OcrLine, OcrRunResult, ProgressFn } from "./types";
+import type {
+  OcrLine,
+  OcrPipeline,
+  OcrRunResult,
+  PpocrModelEntry,
+  ProgressFn,
+} from "../types";
 
 const DET_MEAN = [0.485, 0.456, 0.406];
 const DET_STD = [0.229, 0.224, 0.225];
 const REC_MEAN = [0.5, 0.5, 0.5];
 const REC_STD = [0.5, 0.5, 0.5];
-const DET_THRESH = 0.2; // 二值化阈值
-const BOX_THRESH = 0.4; // 文本框平均概率阈值
-const UNCLIP_RATIO = 1.4; // unclip 外扩系数
-const MIN_BOX_SIDE = 3; // 最小短边像素
 
 // ===== 图像工具 =====
-function rgbaToCHW(imageData: ImageData, mean: number[], std: number[]): Float32Array {
+function rgbaToCHW(
+  imageData: ImageData,
+  mean: number[],
+  std: number[],
+  colorOrder: "BGR",
+): Float32Array {
   const { data, width, height } = imageData;
   const chw = new Float32Array(3 * height * width);
+  // ImageData 为 RGBA；BGR 时通道 0←B、1←G、2←R
+  const order = colorOrder === "BGR" ? [2, 1, 0] : [0, 1, 2];
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const si = (y * width + x) * 4;
       const di = y * width + x;
       for (let c = 0; c < 3; c++) {
-        chw[c * height * width + di] = (data[si + c] / 255 - mean[c]) / std[c];
+        chw[c * height * width + di] = (data[si + order[c]] / 255 - mean[c]) / std[c];
       }
     }
   }
@@ -77,9 +84,13 @@ function dbBoxes(
   oh: number,
   scaleX: number,
   scaleY: number,
+  detThresh: number,
+  boxThresh: number,
+  unclipRatio: number,
+  minBoxSide: number,
 ) {
   const bin = new Uint8Array(ow * oh);
-  for (let i = 0; i < ow * oh; i++) bin[i] = probData[i] > DET_THRESH ? 1 : 0;
+  for (let i = 0; i < ow * oh; i++) bin[i] = probData[i] > detThresh ? 1 : 0;
 
   const label = new Int32Array(ow * oh);
   let curLabel = 0;
@@ -128,12 +139,12 @@ function dbBoxes(
 
     const bw = maxX - minX + 1;
     const bh = maxY - minY + 1;
-    if (Math.min(bw, bh) < MIN_BOX_SIDE) continue;
-    if (sum / cnt < BOX_THRESH) continue;
+    if (Math.min(bw, bh) < minBoxSide) continue;
+    if (sum / cnt < boxThresh) continue;
 
     const area = bw * bh;
     const peri = 2 * (bw + bh);
-    const d = (area * UNCLIP_RATIO) / peri;
+    const d = (area * unclipRatio) / peri;
     boxes.push({
       x0: Math.max(0, minX - d) * scaleX,
       y0: Math.max(0, minY - d) * scaleY,
@@ -145,32 +156,45 @@ function dbBoxes(
   return boxes;
 }
 
-// ===== CTC 贪心解码（含 NaN 防护）=====
+// ===== CTC 贪心解码（含 NaN 防护 + probMode）=====
 function ctcDecode(data: Float32Array, T: number, C: number, charList: string[]) {
   const result = { text: "", confidence: 0, charCount: 0 };
   let prev = -1;
   const confs: number[] = [];
+  // rec 模型图内置 Softmax，输出已是概率分布时置信度直接取 max；
+  // 否则按 logits 做数值稳定 softmax（兼容不带 softmax 的导出）
+  let probMode: boolean | null = null;
   for (let t = 0; t < T; t++) {
     let maxV = -1e9,
-      idx = 0;
+      minV = 1e9,
+      idx = 0,
+      rowSum = 0;
     const base = t * C;
     for (let c = 0; c < C; c++) {
       const v = data[base + c];
       if (!isFinite(v)) continue;
+      rowSum += v;
+      if (v < minV) minV = v;
       if (v > maxV) {
         maxV = v;
         idx = c;
       }
     }
     if (maxV === -1e9) continue; // 整行 NaN
+    if (probMode === null) probMode = minV >= -1e-6 && Math.abs(rowSum - 1) < 0.02;
     if (idx !== 0 && idx !== prev) {
-      let sumE = 0;
-      for (let c = 0; c < C; c++) {
-        const diff = data[base + c] - maxV;
-        if (diff < -50 || !isFinite(diff)) continue;
-        sumE += Math.exp(diff);
+      let p: number;
+      if (probMode) {
+        p = maxV;
+      } else {
+        let sumE = 0;
+        for (let c = 0; c < C; c++) {
+          const diff = data[base + c] - maxV;
+          if (diff < -50 || !isFinite(diff)) continue;
+          sumE += Math.exp(diff);
+        }
+        p = sumE > 0 ? 1 / sumE : 0.001;
       }
-      const p = sumE > 0 ? 1 / sumE : 0.001;
       result.text += charList[idx] !== undefined ? charList[idx] : "";
       confs.push(Math.max(0.001, Math.min(p, 0.999)));
       result.charCount++;
@@ -183,7 +207,6 @@ function ctcDecode(data: Float32Array, T: number, C: number, charList: string[])
   return result;
 }
 
-// ===== 创建会话（后端自动回退：webgpu → webgl → wasm/cpu）=====
 async function createSession(buffer: ArrayBuffer) {
   const candidates = ["webgpu", "webgl", "wasm"] as const;
   const bytes = new Uint8Array(buffer);
@@ -202,42 +225,71 @@ async function createSession(buffer: ArrayBuffer) {
   throw lastErr || new Error("无可用后端");
 }
 
-export interface Pipeline {
-  run: (imageData: ImageData, onProgress?: ProgressFn) => Promise<OcrRunResult>;
-  backend: string;
-  dictSize: number;
+function parseDict(buffer: ArrayBuffer): string[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(buffer));
+  } catch {
+    throw new Error("字典 JSON 解析失败");
+  }
+  if (!Array.isArray(raw) || !raw.every((c) => typeof c === "string")) {
+    throw new Error("字典必须是 string[]");
+  }
+  return raw;
 }
 
-export interface PipelineParams {
-  detMaxSide: number;
-  recHeight: number;
-  recMaxWidth: number;
+/** onnxruntime-web 1.27：outputMetadata 为 ValueMetadata[]，按 name/isTensor/shape 读取 C */
+function readOutputChannels(session: ort.InferenceSession): number | null {
+  const name = session.outputNames[0];
+  const metas = session.outputMetadata;
+  if (!Array.isArray(metas)) return null;
+  const meta = metas.find((m) => m.name === name);
+  if (!meta || !meta.isTensor) return null;
+  const last = meta.shape.at(-1);
+  if (typeof last === "number" && Number.isFinite(last) && last > 0) return last;
+  return null;
+}
+
+async function releaseSessions(
+  ...sessions: ort.InferenceSession[]
+): Promise<void> {
+  for (const s of sessions) {
+    try {
+      await s.release();
+    } catch (releaseErr) {
+      console.warn("[ppocr] session release 失败:", (releaseErr as Error).message);
+    }
+  }
 }
 
 /**
- * 创建 PP-OCR 流水线。
- * det / rec 为模型字节，dict 为字符集数组。
+ * 创建 PP-OCR Pipeline。files 为纯字节；dict 在此解析并做内容维数校验。
  */
-export async function createPipeline(opts: {
-  det: ArrayBuffer;
-  rec: ArrayBuffer;
-  dict: string[];
-  params?: Partial<PipelineParams>;
-}): Promise<Pipeline> {
-  // wasm 运行时文件在 public/ort/（prebuild 脚本从 node_modules 拷入）
+export async function createPpocrPipeline(
+  entry: PpocrModelEntry,
+  files: Record<"det" | "rec" | "dict", ArrayBuffer>,
+): Promise<OcrPipeline> {
   ort.env.wasm.wasmPaths = "/ort/";
-  ort.env.wasm.numThreads = 1; // 单线程，避免 COOP/COEP 依赖（多线程可后续优化）
+  ort.env.wasm.numThreads = 1;
 
-  const charList = ["", ...opts.dict, " "]; // blank(0) + dict + space
-  const P: PipelineParams = {
-    detMaxSide: 960,
-    recHeight: 48,
-    recMaxWidth: 3200,
-    ...(opts.params || {}),
-  };
+  const chars = parseDict(files.dict);
+  const charList = ["", ...chars, " "]; // blank(0) + dict + space
+  if (charList.length !== entry.params.dictSize) {
+    throw new Error(
+      `字典维数不匹配: dict.length+2=${charList.length}, params.dictSize=${entry.params.dictSize}`,
+    );
+  }
 
-  const detLoaded = await createSession(opts.det);
-  const recLoaded = await createSession(opts.rec);
+  const P = entry.params;
+  const detLoaded = await createSession(files.det);
+  let recLoaded: Awaited<ReturnType<typeof createSession>>;
+  try {
+    recLoaded = await createSession(files.rec);
+  } catch (e) {
+    await releaseSessions(detLoaded.session);
+    throw e;
+  }
+
   const detSession = detLoaded.session;
   const recSession = recLoaded.session;
   const backend =
@@ -245,31 +297,45 @@ export async function createPipeline(opts: {
       ? detLoaded.ep
       : `${detLoaded.ep}/${recLoaded.ep}`;
 
+  const staticC = readOutputChannels(recSession);
+  if (staticC === null) {
+    await releaseSessions(detSession, recSession);
+    throw new Error(
+      "无法从 rec session.outputMetadata 读取静态输出维 C（需 name/isTensor/shape）",
+    );
+  }
+  if (staticC !== entry.params.dictSize) {
+    await releaseSessions(detSession, recSession);
+    throw new Error(
+      `rec 输出维 C=${staticC} 与 params.dictSize=${entry.params.dictSize} 不一致`,
+    );
+  }
+
+  let disposed = false;
+
   async function run(
     imageData: ImageData,
     onProgress: ProgressFn = () => {},
   ): Promise<OcrRunResult> {
+    if (disposed) throw new Error("Pipeline 已 dispose");
     const t0 = performance.now();
     onProgress({ pct: 5, label: "预处理…" });
 
     const origW = imageData.width;
     const origH = imageData.height;
 
-    // 源画布（原实现直接读显示用 canvas，这里改为离屏）
     const src = document.createElement("canvas");
     src.width = origW;
     src.height = origH;
     src.getContext("2d")!.putImageData(imageData, 0, 0);
 
-    // 1. 检测预处理：长边 ≤ detMaxSide，取 32 倍数
     const r = Math.min(1, P.detMaxSide / Math.max(origW, origH));
     const detW = Math.max(32, Math.round((origW * r) / 32) * 32);
     const detH = Math.max(32, Math.round((origH * r) / 32) * 32);
     const detResized = resizeImageData(src, detW, detH);
-    const chw = rgbaToCHW(detResized, DET_MEAN, DET_STD);
+    const chw = rgbaToCHW(detResized, DET_MEAN, DET_STD, P.colorOrder);
     const detTensor = new ort.Tensor("float32", chw, [1, 3, detH, detW]);
 
-    // 2. 检测推理
     onProgress({ pct: 20, label: "文本检测推理…" });
     const tDet = performance.now();
     const detResult = await detSession.run({
@@ -283,9 +349,18 @@ export async function createPipeline(opts: {
     const scaleX = origW / probW;
     const scaleY = origH / probH;
 
-    // 3. DBNet 后处理
     onProgress({ pct: 35, label: "DBNet 后处理…" });
-    const boxes = dbBoxes(probData, probW, probH, scaleX, scaleY);
+    const boxes = dbBoxes(
+      probData,
+      probW,
+      probH,
+      scaleX,
+      scaleY,
+      P.detThresh,
+      P.boxThresh,
+      P.unclipRatio,
+      P.minBoxSide,
+    );
     console.log("[OCR] 检测到", boxes.length, "个文本区域");
 
     if (boxes.length === 0) {
@@ -293,7 +368,6 @@ export async function createPipeline(opts: {
       return { results: [], boxesFound: 0, detMs, recMs: 0, totalMs, backend };
     }
 
-    // 4. 逐个文本框识别
     let recMs = 0;
     const results: OcrLine[] = [];
     for (let i = 0; i < boxes.length; i++) {
@@ -305,7 +379,7 @@ export async function createPipeline(opts: {
       const cropped = cropImageData(imageData, b.x0, b.y0, cw, ch);
       if (!cropped) continue;
 
-      // 缩放至 recHeight 像素高（长文本分块处理）
+      // 缩放至 recHeight；长文本按 recMaxWidth 分块（与 Python 对照相同规则）
       const recW = Math.max(8, Math.round((P.recHeight * cw) / ch));
       const parts = Math.ceil(recW / P.recMaxWidth);
       const partW = Math.max(8, Math.round(recW / parts));
@@ -331,7 +405,7 @@ export async function createPipeline(opts: {
         off2.getContext("2d")!.drawImage(off, -srcX, 0);
 
         const recResized = resizeImageData(off2, partW, P.recHeight);
-        const recInput = rgbaToCHW(recResized, REC_MEAN, REC_STD);
+        const recInput = rgbaToCHW(recResized, REC_MEAN, REC_STD, P.colorOrder);
         const recTensor = new ort.Tensor("float32", recInput, [
           1,
           3,
@@ -347,6 +421,11 @@ export async function createPipeline(opts: {
         const recOutput = recResult[recSession.outputNames[0]];
         const T = recOutput.dims[1];
         const C = recOutput.dims[2];
+        if (C !== entry.params.dictSize) {
+          throw new Error(
+            `rec 输出维 C=${C} 与 params.dictSize=${entry.params.dictSize} 不一致`,
+          );
+        }
         const decoded = ctcDecode(recOutput.data as Float32Array, T, C, charList);
         fullText += decoded.text;
         if (decoded.charCount) confs.push(decoded.confidence);
@@ -364,5 +443,11 @@ export async function createPipeline(opts: {
     return { results, boxesFound: boxes.length, detMs, recMs, totalMs, backend };
   }
 
-  return { run, backend, dictSize: charList.length };
+  async function dispose(): Promise<void> {
+    if (disposed) return;
+    disposed = true;
+    await Promise.all([detSession.release(), recSession.release()]);
+  }
+
+  return { backend, run, dispose };
 }

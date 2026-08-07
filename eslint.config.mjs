@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Phase 1：忽略 agent 工作区与生成的 ort wasm
+    ".agents/**",
+    "public/ort/**",
   ]),
 ]);
 

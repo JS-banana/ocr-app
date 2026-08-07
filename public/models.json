@@ -3,17 +3,101 @@
     {
       "id": "ppocrv6-tiny",
       "name": "PP-OCRv6 Tiny",
+      "label": "快速",
       "recommended": true,
-      "sizeMB": 6.2,
-      "desc": "中英等 49 种语言，6MB，秒载",
-      "source": "local",
+      "revision": "2026-08-07",
       "pipeline": "ppocr-dbnet-ctc",
       "files": {
-        "det": "models/PP-OCRv6_det_tiny.onnx",
-        "rec": "models/PP-OCRv6_rec_tiny.onnx",
-        "dict": "models/ppocr_keys_v6_tiny.json"
+        "det": {
+          "url": "/models/PP-OCRv6_det_tiny.onnx",
+          "sizeBytes": 1780590
+        },
+        "rec": {
+          "url": "/models/PP-OCRv6_rec_tiny.onnx",
+          "sizeBytes": 4462639
+        },
+        "dict": {
+          "url": "/models/ppocr_keys_v6_tiny.json",
+          "sizeBytes": 40967
+        }
       },
-      "params": { "detMaxSide": 960, "recHeight": 48, "recMaxWidth": 3200, "dictSize": 6906 }
+      "params": {
+        "detMaxSide": 960,
+        "recHeight": 48,
+        "recMaxWidth": 3200,
+        "dictSize": 6906,
+        "colorOrder": "BGR",
+        "detThresh": 0.2,
+        "boxThresh": 0.4,
+        "unclipRatio": 1.4,
+        "minBoxSide": 3
+      }
+    },
+    {
+      "id": "ppocrv6-small",
+      "name": "PP-OCRv6 Small",
+      "label": "均衡",
+      "recommended": false,
+      "revision": "2026-08-07",
+      "pipeline": "ppocr-dbnet-ctc",
+      "files": {
+        "det": {
+          "url": "/models/PP-OCRv6_det_small.onnx",
+          "sizeBytes": 9880512
+        },
+        "rec": {
+          "url": "/models/PP-OCRv6_rec_small.onnx",
+          "sizeBytes": 21159378
+        },
+        "dict": {
+          "url": "/models/ppocr_keys_v6_full.json",
+          "sizeBytes": 112366
+        }
+      },
+      "params": {
+        "detMaxSide": 960,
+        "recHeight": 48,
+        "recMaxWidth": 3200,
+        "dictSize": 18710,
+        "colorOrder": "BGR",
+        "detThresh": 0.2,
+        "boxThresh": 0.45,
+        "unclipRatio": 1.4,
+        "minBoxSide": 3
+      }
+    },
+    {
+      "id": "ppocrv6-medium",
+      "name": "PP-OCRv6 Medium",
+      "label": "高精度",
+      "recommended": false,
+      "revision": "2026-08-07",
+      "pipeline": "ppocr-dbnet-ctc",
+      "files": {
+        "det": {
+          "url": "/models/PP-OCRv6_det_medium.onnx",
+          "sizeBytes": 62032837
+        },
+        "rec": {
+          "url": "/models/PP-OCRv6_rec_medium.onnx",
+          "sizeBytes": 76554979
+        },
+        "dict": {
+          "url": "/models/ppocr_keys_v6_full.json",
+          "sizeBytes": 112366
+        }
+      },
+      "params": {
+        "detMaxSide": 960,
+        "recHeight": 48,
+        "recMaxWidth": 3200,
+        "dictSize": 18710,
+        "colorOrder": "BGR",
+        "detThresh": 0.2,
+        "boxThresh": 0.45,
+        "unclipRatio": 1.4,
+        "minBoxSide": 3
+      }
     }
   ]
 }
