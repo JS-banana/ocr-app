@@ -114,6 +114,10 @@ export default function OcrClient() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 上传/替换图片后自动识别：按 imageVersion 去重，避免 Strict Mode 双跑；
+  // 切换模型时清空 lastAutoRanVersionRef，以便新模型 ready 后再跑一次
+  const autoRunForVersionRef = useRef<number | null>(null);
+  const lastAutoRanVersionRef = useRef<number | null>(null);
 
   const currentModel = models.find((m) => m.id === currentId) ?? null;
   const currentProgress = currentId ? cardProgress[currentId] : undefined;
@@ -134,6 +138,8 @@ export default function OcrClient() {
     setRunMeta(null);
     setRunProgress(null);
     setCopyState("");
+    // 允许新模型 ready 后再次自动识别（与结果区「模型加载完成后将自动识别」一致）
+    lastAutoRanVersionRef.current = null;
     const canvas = canvasRef.current;
     const img = imageDataRef.current;
     if (canvas && img) canvas.getContext("2d")!.putImageData(img, 0, 0);
@@ -295,7 +301,11 @@ export default function OcrClient() {
           ctx.drawImage(img, 0, 0);
           imageDataRef.current = ctx.getImageData(0, 0, w, h);
           imageNameRef.current = origin === "paste" ? null : file.name;
-          setImageVersion((v) => v + 1);
+          setImageVersion((v) => {
+            const next = v + 1;
+            autoRunForVersionRef.current = next;
+            return next;
+          });
           setHasImage(true);
           setImageError(null);
           setResults(null);
@@ -431,6 +441,15 @@ export default function OcrClient() {
     setRunning(false);
   }, [ready, running]);
 
+  // 上传/替换图片后自动开始识别；模型尚未就绪时等 ready 再跑
+  useEffect(() => {
+    if (!hasImage || !ready || running) return;
+    if (autoRunForVersionRef.current !== imageVersion) return;
+    if (lastAutoRanVersionRef.current === imageVersion) return;
+    lastAutoRanVersionRef.current = imageVersion;
+    void runOCR();
+  }, [hasImage, imageVersion, ready, running, runOCR]);
+
   // ===== 结果操作 =====
   const copyAll = useCallback(async () => {
     if (!results || results.length === 0) return;
@@ -466,6 +485,8 @@ export default function OcrClient() {
   const clearImage = useCallback(() => {
     imageDataRef.current = null;
     imageNameRef.current = null;
+    autoRunForVersionRef.current = null;
+    lastAutoRanVersionRef.current = null;
     setHasImage(false);
     setImageError(null);
     setResults(null);
@@ -504,9 +525,9 @@ export default function OcrClient() {
 
   // ===== 渲染 =====
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className={`flex flex-col ${hasImage ? "h-dvh overflow-hidden" : "min-h-dvh"}`}>
       {/* ===== 顶部栏 ===== */}
-      <header className="border-b border-border bg-panel">
+      <header className="shrink-0 border-b border-border bg-panel">
         <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
@@ -636,11 +657,11 @@ export default function OcrClient() {
           </section>
         </main>
       ) : (
-        /* ===== 识别工作区（固定三栏） ===== */
-        <main className="mx-auto grid min-h-0 w-full max-w-[1600px] flex-1 grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_320px] gap-4 p-4">
+        /* ===== 识别工作区（固定视口高度，三栏内滚动） ===== */
+        <main className="mx-auto grid min-h-0 w-full max-w-[1600px] flex-1 grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_320px] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4">
           {/* 左栏：原图与标注框 */}
           <section className="flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-border bg-panel">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
               <h2 className="text-[13px] font-semibold tracking-tight">原图</h2>
               <span className={`text-[11px] ${imageError ? "text-err" : "text-muted"}`}>
                 {imageError ?? "拖入新图片或 Ctrl/⌘V 粘贴可替换"}
@@ -648,7 +669,7 @@ export default function OcrClient() {
             </div>
             <div
               {...dropHandlers}
-              className={`flex min-h-0 flex-1 items-center justify-center p-4 transition-[background-color] duration-150 ${
+              className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4 transition-[background-color] duration-150 ${
                 dragOver ? "bg-accent/[0.05]" : ""
               }`}
             >
@@ -663,7 +684,7 @@ export default function OcrClient() {
 
           {/* 中栏：逐行文字与置信度 */}
           <section className="flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-border bg-panel">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5">
               <h2 className="text-[13px] font-semibold tracking-tight">识别结果</h2>
               {currentModel && (
                 <span className="truncate text-[11px] text-muted">
@@ -673,7 +694,7 @@ export default function OcrClient() {
               )}
             </div>
             {runProgress && (
-              <div className="border-b border-border px-4 py-2.5" aria-live="polite">
+              <div className="shrink-0 border-b border-border px-4 py-2.5" aria-live="polite">
                 <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted">
                   <span>{runProgress.label}</span>
                   <span className="font-mono tabular-nums">
@@ -688,7 +709,7 @@ export default function OcrClient() {
                 </div>
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
               {results && results.length > 0 ? (
                 results.map((r, i) => (
                   <div
@@ -728,14 +749,16 @@ export default function OcrClient() {
                         ? "检测到文本区域，但没有识别出有效文字"
                         : resultsState.kind === "error"
                           ? `识别失败：${resultsState.message}`
-                          : ready
-                            ? `点击「使用 ${currentModel?.label ?? ""} 识别」提取图中文字`
-                            : "模型加载完成后即可识别"}
+                          : running
+                            ? "正在识别…"
+                            : !ready
+                              ? "模型加载完成后将自动识别"
+                              : "准备识别…"}
                   </p>
                 </div>
               )}
             </div>
-            <div className="border-t border-border px-4 py-2.5">
+            <div className="shrink-0 border-t border-border px-4 py-2.5">
               <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted/70">
                 运行详情
               </div>
