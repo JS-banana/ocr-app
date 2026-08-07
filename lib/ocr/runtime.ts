@@ -69,7 +69,7 @@ export interface OcrRuntimeOptions {
   loadAssets: LoadAssetsFn;
   /** 缺省动态 import 当前唯一 PP-OCR factory；测试注入替身 */
   createPipeline?: CreatePipelineFn;
-  /** 独占运行内存的模型 id；默认 ppocrv6-medium */
+  /** 独占运行内存的模型 id；默认在 catalog 含 ppocrv6-medium 时启用，缺席则空（如 Pages Tiny-only） */
   exclusiveIds?: ReadonlySet<string>;
   onState?: (id: string, state: ModelState) => void;
   onLoadProgress?: (id: string, progress: ModelLoadProgress) => void;
@@ -136,8 +136,12 @@ export class OcrRuntime {
         load: null,
       });
     }
-    this.exclusive = opts.exclusiveIds ?? new Set(["ppocrv6-medium"]);
-    // 独占 id 与 manifest id 是两处数据源：未知 id 直接失败，避免独占策略静默失效
+    this.exclusive =
+      opts.exclusiveIds ??
+      new Set(
+        this.slots.has("ppocrv6-medium") ? (["ppocrv6-medium"] as const) : [],
+      );
+    // 显式传入的独占 id 必须落在 catalog；缺席则直接失败，避免独占策略静默失效
     for (const id of this.exclusive) {
       if (!this.slots.has(id)) {
         throw new Error(`exclusiveIds 含未知模型 id: ${id}`);
