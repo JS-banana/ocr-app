@@ -1,5 +1,5 @@
 // 通用资产加载：Cache API + revision 键 + 纯字节；不解析 dict、不理解模型结构
-import { assetCacheKey } from "./manifest";
+import { assetCacheKey, withBasePath } from "./manifest";
 import type { AssetFile, ModelLoadProgress } from "./types";
 
 const CACHE_NAME = "ocr-models-v1";
@@ -48,8 +48,9 @@ async function fetchNetwork(
     }
   }
 
-  const resp = await fetch(file.url);
-  if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}: ${file.url}`);
+  const url = withBasePath(file.url);
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}: ${url}`);
 
   let buffer: ArrayBuffer;
 

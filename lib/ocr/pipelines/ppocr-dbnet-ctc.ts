@@ -2,6 +2,7 @@
 // 只能被客户端模块引用（onnxruntime-web 的 exports 对 node 显式禁用）。
 // 全量导入：/webgpu 条件导入不含 webgl 后端，而 webgl 是 iOS/Safari 的 GPU 兜底。
 import * as ort from "onnxruntime-web";
+import { withBasePath } from "../manifest";
 import type {
   OcrLine,
   OcrPipeline,
@@ -269,7 +270,7 @@ export async function createPpocrPipeline(
   entry: PpocrModelEntry,
   files: Record<"det" | "rec" | "dict", ArrayBuffer>,
 ): Promise<OcrPipeline> {
-  ort.env.wasm.wasmPaths = "/ort/";
+  ort.env.wasm.wasmPaths = withBasePath("/ort/");
   ort.env.wasm.numThreads = 1;
 
   const chars = parseDict(files.dict);

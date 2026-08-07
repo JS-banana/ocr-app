@@ -23,10 +23,16 @@ pnpm dev   # http://localhost:3000
 
 ## 部署
 
+本地静态产物：
+
 ```bash
 pnpm build
 # 将 out/ 与 public/models/ 一并发布到静态托管
 ```
+
+GitHub Pages：推送 `main` 后由 [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) 自动构建并发布（含三档模型下载）。站点地址：
+
+https://js-banana.github.io/ocr-app/
 
 ## 开发
 

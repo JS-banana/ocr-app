@@ -9,6 +9,25 @@ import type {
   ValidatedModelCatalog,
 } from "./types";
 
+/**
+ * 部署子路径（如 GitHub Pages `/ocr-app`）。
+ * 由 next.config 把 BASE_PATH 注入为 NEXT_PUBLIC_BASE_PATH；本地为空。
+ */
+export function appBasePath(): string {
+  return process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+}
+
+/**
+ * 给站点根绝对路径加上 basePath。
+ * 清单里仍保持 `/models/...` 规范；仅在实际 fetch / wasmPaths 时调用。
+ */
+export function withBasePath(path: string): string {
+  const base = appBasePath();
+  if (!base || !path.startsWith("/") || path.startsWith("//")) return path;
+  if (path === base || path.startsWith(`${base}/`)) return path;
+  return `${base}${path}`;
+}
+
 export class ManifestError extends Error {
   readonly modelId: string | null;
   readonly path: string;
@@ -345,9 +364,9 @@ export function assetCacheKey(url: string, revision: string): string {
   return `${url}${sep}rev=${encodeURIComponent(revision)}`;
 }
 
-/** 浏览器：fetch /models.json 并校验 */
+/** 浏览器：fetch /models.json 并校验（子路径部署时自动加 basePath） */
 export async function loadModelCatalog(
-  url = "/models.json",
+  url = withBasePath("/models.json"),
 ): Promise<ValidatedModelCatalog> {
   const resp = await fetch(url);
   if (!resp.ok) {
