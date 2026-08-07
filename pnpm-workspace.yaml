@@ -1,0 +1,3 @@
+# Single-package app; this file also holds pnpm 11+ project settings.
+allowBuilds:
+  protobufjs: false

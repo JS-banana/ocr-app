@@ -1,77 +1,89 @@
 # OCR-APP — 浏览器端 OCR 验证站
 
-基于 **PP-OCRv6 tiny（约 6MB）+ onnxruntime-web** 的纯浏览器端 OCR：选模型、加载、识别全在访客自己机器上完成，服务器只做静态文件分发。
+纯前端 OCR 试验场：用约 **6MB** 的 PP-OCRv6 tiny + `onnxruntime-web`，在访客浏览器里完成选模型、加载与识别；服务器只分发静态文件。
 
-技术栈：**Next.js 16（静态导出）+ Tailwind CSS v4 + TypeScript**，部署形态为纯静态站（nginx + Cloudflare）。
+适合想验证「小模型能否在 Web 上跑通、CPU/GPU 后端怎么回退」的开发者与研究者。技术栈为 **Next.js 16（静态导出）+ Tailwind CSS v4 + TypeScript**。
 
 ## 快速开始
 
-```bash
-npm install        # 安装依赖（postinstall 自动拷 ort wasm 到 public/ort/）
-npm run dev        # 开发：http://localhost:3000
-npm run build      # 构建：静态导出到 out/，任意静态服务器可分发
-```
-
-模型文件（`public/models/*.onnx`）不纳入 git，首次或缺失时下载：
+需要 Node.js 22+ 与 pnpm。
 
 ```bash
-bash scripts/download_models.sh      # 默认走 hf-mirror 加速
+pnpm install                    # postinstall 会拷贝 ort wasm → public/ort/
+bash scripts/download_models.sh # 下载 det/rec ONNX（默认 hf-mirror）
+pnpm dev                        # http://localhost:3000
 ```
 
-## 目录结构
+首次使用还需字符集（与模型绑定，错字典会整页乱码）：
 
-```
-├── app/                     # Next.js App Router（layout / page / globals）
-├── components/ocr-client.tsx  # OCR 客户端 UI（模型选择/上传/识别/结果）
-├── lib/ocr/                 # 推理流水线与模型加载
-│   ├── ppocr.ts             #   DBNet 检测 + CTC 识别（webgpu→webgl→wasm 回退）
-│   ├── loader.ts            #   Cache API 持久化 + 流式下载进度
-│   └── types.ts
-├── public/
-│   ├── models.json          # 模型清单（唯一需要维护的注册表）
-│   ├── models/              # onnx 模型 + 字符集（git 忽略）
-│   └── ort/                 # ort wasm 运行时（postinstall 生成）
-├── docs/                    # 产品方案、技术调研、源资料
-├── scripts/                 # 研究工具链（下载模型 / Python 验证 / 字符集提取）
-│   └── assets/test_input.png
-└── out/                     # next build 静态导出产物（rsync 分发）
+```bash
+# 若尚无 scripts/inference_rec.yml：
+curl -L -o scripts/inference_rec.yml \
+  "https://hf-mirror.com/PaddlePaddle/PP-OCRv6_tiny_rec_onnx/resolve/main/inference.yml"
+
+python3 scripts/extract_charset.py   # 生成 public/models/ppocr_keys_v6_tiny.json
 ```
 
-## 产品逻辑
+浏览器打开后：选模型 → 等待加载 → 上传图片 → 识别。后端按 `webgpu → webgl → wasm` 自动回退，结果区会显示实际后端与耗时。
 
-- **清单驱动**：`public/models.json` 每条记录描述一个模型（名称/大小/来源/pipeline 类型/推理参数），UI 与加载逻辑全部读清单，代码不写死模型信息
-- **模型缓存**：下载走 Cache API（`ocr-models-v1`），一次下载离线可用
-- **推理后端**：`webgpu → webgl → wasm` 自动回退，识别完成后显示实际后端与耗时
-- 详见 `docs/web-playground-plan.md`（产品定稿方案）与 `docs/nextjs-tailwind-research.md`（技术选型依据）
+> [!NOTE]
+> `public/models/` 与 `public/ort/` 不入库；克隆后必须走上述安装/下载步骤。
+
+## 它做什么
+
+- **清单驱动**：模型信息只维护在 `public/models.json`，UI 与加载逻辑读清单，不写死路径。
+- **本机缓存**：权重经 Cache API（`ocr-models-v1`）缓存，下载一次可离线复用。
+- **纯静态部署**：`pnpm build` 导出到 `out/`，用 nginx / Cloudflare / 任意静态托管即可。
 
 ## 部署
 
 ```bash
-npm run build                          # 产物在 out/
+pnpm build
 rsync -avz --delete out/ server:~/ocr-web/
 ```
 
-nginx/Cloudflare 缓存配置（`.onnx`/`.wasm` 长缓存、`.html` 每次验证）见 `docs/nextjs-tailwind-research.md` 第四节。
+记得把 `public/models/` 下的权重与字符集一并放到站点可访问路径（与 `models.json` 中路径一致）。`.onnx` / `.wasm` 宜长缓存，HTML 宜每次校验。
 
-## 研究工具链（scripts/）
+## 仓库地图
+
+| 路径 | 作用 |
+|------|------|
+| `app/` | Next.js App Router 入口（OCR 页 `ssr: false` 动态加载） |
+| `components/ocr-client.tsx` | 模型选择 / 上传 / 识别 / 结果 UI |
+| `lib/ocr/` | DBNet+CTC 流水线、Cache 加载、类型 |
+| `public/models.json` | 模型注册表（需入库维护） |
+| `public/models/` | ONNX + 字典（gitignore） |
+| `public/ort/` | ort wasm（`postinstall` / `prebuild` 生成） |
+| `scripts/` | 下载模型、提字符集、Python 端到端对照 |
+| `out/` | 静态导出产物 |
+
+## 研究工具链
 
 ```bash
-bash scripts/download_models.sh        # 下载模型到 public/models/
-python3 scripts/verify_pipeline.py     # Python 端到端验证（无需浏览器）
-python3 scripts/extract_charset.py     # 从官方 inference.yml 提取字符集（模型升级时用）
+bash scripts/download_models.sh              # ONNX → public/models/
+python3 scripts/extract_charset.py           # 升级模型时重提字符集
+python3 scripts/verify_pipeline.py [图片]    # 无需浏览器的流水线对照
+pnpm lint
+pnpm exec tsc --noEmit
 ```
 
-## 关键经验（实测）
+Python 侧需本机安装 `onnxruntime`、`Pillow`、`PyYAML`（未写入 pnpm 依赖）。
 
-1. **字符集必须与模型匹配**：官方 `inference.yml` 内嵌 6904 字符，外部 6622 字典会全乱码
-2. **softmax 防 NaN**：模型输出含 NaN 时 `Math.exp(NaN)` 会整行扩散，需 `isFinite` 防护
-3. **det 输出单通道** `[N,1,H,W]`，概率图分辨率与输入一致
-4. **ort wasm 资产需整套拷贝**：`ort-wasm-simd-threaded.*`（mjs+wasm 全家族），jsep 工作线程依赖 `.mjs` 伴侣文件
-5. **`onnxruntime-web` 需全量主入口导入**：`/webgpu` 条件导入不含 webgl 后端，而 webgl 是 iOS/Safari 唯一 GPU 兜底
+## 踩坑备忘
+
+1. **字符集必须匹配模型**：官方 `inference.yml` 约 6904 字；前端使用 `[''] + chars + [' ']` → `dictSize` 6906。
+2. **softmax 防 NaN**：输出含 NaN 时要 `isFinite`，否则整行污染（见 `lib/ocr/ppocr.ts`）。
+3. **det 输出**为单通道 `[N,1,H,W]`，概率图分辨率与输入一致。
+4. **ort wasm 整套拷贝**：`ort-wasm-simd-threaded.*`（mjs + wasm 全家），勿只拷单个 `.wasm`。
+5. **全量导入 ort**：`import * as ort from "onnxruntime-web"`；`/webgpu` 入口不含 webgl，而 webgl 是 iOS/Safari 的 GPU 兜底。
 
 ## 参考
 
-- PP-OCRv6 tiny 模型：https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx 、https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_rec_onnx （Apache-2.0）
-- PaddleOCR 官方：https://github.com/PaddlePaddle/PaddleOCR
-- onnxruntime-web：https://github.com/microsoft/onnxruntime
-- 方案来源整理：`docs/wechat-paddleocr-onnx-browser.md`
+- 模型（Apache-2.0）：[PP-OCRv6_tiny_det_onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx) · [PP-OCRv6_tiny_rec_onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_rec_onnx)
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) · [onnxruntime](https://github.com/microsoft/onnxruntime)
+- 给编码代理的仓库约定见 `AGENTS.md`
+- 本地可选研究笔记：`docs/`（默认 gitignore，克隆机可能没有）
+
+## License
+
+本仓库暂无 `LICENSE` 文件。所依赖的 PP-OCRv6 tiny ONNX 权重标注为 Apache-2.0；使用前请自行核对上游许可。
