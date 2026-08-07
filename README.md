@@ -30,7 +30,7 @@ pnpm build
 # 将 out/ 与 public/models/ 一并发布到静态托管
 ```
 
-GitHub Pages：推送 `main` 后由 [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) 自动构建并发布（含三档模型下载）。站点地址：
+GitHub Pages：推送 `main` 后由 [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) 自动构建并发布。为缩短 CI，Pages **目前只带 Tiny**（构建时临时裁剪清单，不改仓库里的三档 `models.json`）。自建静态托管仍按上面本地流程发布全量模型。站点地址：
 
 https://js-banana.github.io/ocr-app/
 

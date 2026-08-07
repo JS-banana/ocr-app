@@ -41,19 +41,25 @@ jobs:
       - name: Install Python dependencies
         run: pip install pyyaml
 
-      - name: Download OCR models
+      # Pages 仅打包 Tiny，缩短 CI 与首屏下载；自建部署仍用完整 models.json + 三档权重
+      - name: Download Tiny model
         env:
           HF_MIRROR: https://huggingface.co
-        run: |
-          for model in ppocrv6-tiny ppocrv6-small ppocrv6-medium; do
-            bash scripts/download_models.sh --model "$model"
-          done
+        run: bash scripts/download_models.sh --model ppocrv6-tiny
 
-      - name: Extract charsets
+      - name: Extract Tiny charset
+        run: python3 scripts/extract_charset.py --model ppocrv6-tiny
+
+      - name: Restrict catalog to Tiny for Pages
         run: |
-          python3 scripts/extract_charset.py --model ppocrv6-tiny
-          python3 scripts/extract_charset.py --model ppocrv6-small
-          python3 scripts/extract_charset.py --model ppocrv6-medium
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            const path = "public/models.json";
+            const catalog = JSON.parse(readFileSync(path, "utf8"));
+            const tiny = catalog.models.filter((m) => m.id === "ppocrv6-tiny");
+            if (tiny.length !== 1) throw new Error("ppocrv6-tiny missing from models.json");
+            writeFileSync(path, JSON.stringify({ models: tiny }, null, 2) + "\n");
+          '
 
       - name: Build static site
         env:
