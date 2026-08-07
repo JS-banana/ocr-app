@@ -29,7 +29,8 @@
 - **清单驱动模型**：模型元数据只维护 `public/models.json`；UI/加载读清单，代码不写死路径与参数。条目经 `lib/ocr/manifest.ts` 全字段运行时校验（含 `/models/` 路径白名单），TS 断言不代替校验。
 - **Session 生命周期**：`lib/ocr/runtime.ts` 是唯一所有者：Promise 去重、selection generation 双检、transition lock 串行化 Session 创建/释放、Tiny/Small 常驻共存、Medium 独占、busy 拒绝切换、dispose 收口不复活。UI 不直接持有 Pipeline；测试注入 `loadAssets`/`createPipeline` 替身（runtime 无相对路径值导入，Node 可直接测）。
 - **生成资产勿手改**：`public/ort/` 由 `postinstall`/`prebuild` 生成（gitignore）；权重与字典在 `public/models/`（gitignore）。改 ort 拷贝逻辑改 `package.json` scripts，不手工塞文件。
-- **字符集维数**：Tiny dict 6904 字 → `[''] + chars + [' ']` → `dictSize` 6906；Small/Medium 共用 `ppocr_keys_v6_full.json` 18708 字 → 18710。错字典会整页乱码；升级模型时用 `extract_charset.py`，勿拿外部 6622 字典凑合。
+- **模型目录**：权重与字典按 id 落在 `public/models/<id>/{det,rec}.onnx` 与 `dict.json`（`ort` 仍平铺 `/ort/`，勿改）。清单 url 须与此一致。
+- **字符集维数**：Tiny dict 6904 字 → `[''] + chars + [' ']` → `dictSize` 6906；Small/Medium 各档 `dict.json` 内容相同（18708 字 → 18710）。错字典会整页乱码；升级模型时用 `extract_charset.py`，勿拿外部 6622 字典凑合。
 - **解码防 NaN**：识别 softmax/`Math.exp` 路径必须 `isFinite` 过滤，否则单点 NaN 会整行污染（见 `lib/ocr/pipelines/ppocr-dbnet-ctc.ts`）。
 - **wasm 线程**：`ort.env.wasm.numThreads = 1`，避免依赖 COOP/COEP；`wasmPaths = "/ort/"`。
 - **桌面 UI 边界**：`globals.css` 设 `body { min-width: 1180px }`，不写移动端/触控规则；配色在 `@theme`（琥珀 `#f0a23a` 只用于选中/关键按钮/进度，小号文字用 `accent-ink`）。模型卡用 `radiogroup/radio` + 方向键（roving tabindex），模型与运行状态走 `aria-live="polite"`。
@@ -60,7 +61,7 @@
 
 - 前端逻辑：`pnpm lint`；触及类型时再 `pnpm exec tsc --noEmit`；manifest/runtime 行为跑 `pnpm test`。
 - 流水线回归：有模型时跑 `python3 scripts/verify_pipeline.py --model <id>`（三档各跑一次，Tiny 加 `--baseline`）；浏览器路径用 `pnpm dev` 加载清单并实测识别。
-- 发布前：`pnpm build`，确认 `out/` 含页面与 `/ort`、`/models.json`（六个 ONNX 与两份字典需另行放到服务器 `models/`）。
+- 发布前：`pnpm build`，确认 `out/` 含页面与 `/ort`、`/models.json`（`public/models/<id>/` 下各档权重与字典需另行放到服务器）。
 - 若某检查无法运行，在回复里写明命令与原因。
 
 ## Reference Map

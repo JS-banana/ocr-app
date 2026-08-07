@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 下载 PP-OCRv6 ONNX 模型（官方仓库，国内用 hf-mirror 加速）
 # macOS bash 3.2 兼容：无 associative array、无 mapfile。
+# 落盘布局：public/models/<model-id>/{det,rec}.onnx（字典由 extract_charset.py 生成）
 #
 # 用法:
 #   bash scripts/download_models.sh --model ppocrv6-tiny
@@ -12,7 +13,6 @@ MIRROR="${HF_MIRROR:-https://hf-mirror.com}"
 BASE="$MIRROR/PaddlePaddle"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/public/models"
-mkdir -p "$OUT"
 
 MODEL=""
 while [ $# -gt 0 ]; do
@@ -77,6 +77,7 @@ skip_or_fetch() {
   _remote="$3"
   _dest="$4"
   _url="${BASE}/${_repo}/resolve/main/${_remote}"
+  mkdir -p "$(dirname "$_dest")"
   if [ -f "$_dest" ]; then
     _sz=$(wc -c < "$_dest" | tr -d ' ')
     _digest=$(sha256_file "$_dest")
@@ -88,37 +89,37 @@ skip_or_fetch() {
 
 case "$MODEL" in
   ppocrv6-tiny)
-    skip_or_fetch "PP-OCRv6_det_tiny.onnx" "PP-OCRv6_tiny_det_onnx" "inference.onnx" \
-      "$OUT/PP-OCRv6_det_tiny.onnx"
-    skip_or_fetch "PP-OCRv6_rec_tiny.onnx" "PP-OCRv6_tiny_rec_onnx" "inference.onnx" \
-      "$OUT/PP-OCRv6_rec_tiny.onnx"
+    skip_or_fetch "ppocrv6-tiny/det.onnx" "PP-OCRv6_tiny_det_onnx" "inference.onnx" \
+      "$OUT/ppocrv6-tiny/det.onnx"
+    skip_or_fetch "ppocrv6-tiny/rec.onnx" "PP-OCRv6_tiny_rec_onnx" "inference.onnx" \
+      "$OUT/ppocrv6-tiny/rec.onnx"
     skip_or_fetch "inference_rec.yml" "PP-OCRv6_tiny_rec_onnx" "inference.yml" \
       "$ROOT/scripts/inference_rec.yml"
     skip_or_fetch "inference_det_tiny.yml" "PP-OCRv6_tiny_det_onnx" "inference.yml" \
       "$ROOT/scripts/inference_det_tiny.yml"
-    echo "done: tiny assets ready under $OUT"
+    echo "done: tiny weights under $OUT/ppocrv6-tiny (dict via extract_charset.py)"
     ;;
   ppocrv6-small)
-    skip_or_fetch "PP-OCRv6_det_small.onnx" "PP-OCRv6_small_det_onnx" "inference.onnx" \
-      "$OUT/PP-OCRv6_det_small.onnx"
-    skip_or_fetch "PP-OCRv6_rec_small.onnx" "PP-OCRv6_small_rec_onnx" "inference.onnx" \
-      "$OUT/PP-OCRv6_rec_small.onnx"
+    skip_or_fetch "ppocrv6-small/det.onnx" "PP-OCRv6_small_det_onnx" "inference.onnx" \
+      "$OUT/ppocrv6-small/det.onnx"
+    skip_or_fetch "ppocrv6-small/rec.onnx" "PP-OCRv6_small_rec_onnx" "inference.onnx" \
+      "$OUT/ppocrv6-small/rec.onnx"
     skip_or_fetch "inference_det_small.yml" "PP-OCRv6_small_det_onnx" "inference.yml" \
       "$ROOT/scripts/inference_det_small.yml"
     skip_or_fetch "inference_rec_small.yml" "PP-OCRv6_small_rec_onnx" "inference.yml" \
       "$ROOT/scripts/inference_rec_small.yml"
-    echo "done: small assets ready under $OUT"
+    echo "done: small weights under $OUT/ppocrv6-small (dict via extract_charset.py)"
     ;;
   ppocrv6-medium)
-    skip_or_fetch "PP-OCRv6_det_medium.onnx" "PP-OCRv6_medium_det_onnx" "inference.onnx" \
-      "$OUT/PP-OCRv6_det_medium.onnx"
-    skip_or_fetch "PP-OCRv6_rec_medium.onnx" "PP-OCRv6_medium_rec_onnx" "inference.onnx" \
-      "$OUT/PP-OCRv6_rec_medium.onnx"
+    skip_or_fetch "ppocrv6-medium/det.onnx" "PP-OCRv6_medium_det_onnx" "inference.onnx" \
+      "$OUT/ppocrv6-medium/det.onnx"
+    skip_or_fetch "ppocrv6-medium/rec.onnx" "PP-OCRv6_medium_rec_onnx" "inference.onnx" \
+      "$OUT/ppocrv6-medium/rec.onnx"
     skip_or_fetch "inference_det_medium.yml" "PP-OCRv6_medium_det_onnx" "inference.yml" \
       "$ROOT/scripts/inference_det_medium.yml"
     skip_or_fetch "inference_rec_medium.yml" "PP-OCRv6_medium_rec_onnx" "inference.yml" \
       "$ROOT/scripts/inference_rec_medium.yml"
-    echo "done: medium assets ready under $OUT"
+    echo "done: medium weights under $OUT/ppocrv6-medium (dict via extract_charset.py)"
     ;;
   *)
     echo "unknown model: $MODEL (ppocrv6-tiny|ppocrv6-small|ppocrv6-medium)" >&2

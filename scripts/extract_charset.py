@@ -1,37 +1,44 @@
 #!/usr/bin/env python3
 """从 PP-OCRv6 官方 inference.yml 提取字符集。
 
+落盘：public/models/<model-id>/dict.json
+Small 写出后同步拷贝到 Medium（内容相同，各档自包含）。
+Medium 为校验模式：与 Small 字典及官方 yml 严格一致。
+
 用法:
     python3 scripts/extract_charset.py --model ppocrv6-tiny
-    python3 scripts/extract_charset.py --model ppocrv6-small   # Phase2
-    python3 scripts/extract_charset.py --model ppocrv6-medium  # Phase2：校验与 Small 一致
+    python3 scripts/extract_charset.py --model ppocrv6-small
+    python3 scripts/extract_charset.py --model ppocrv6-medium
 """
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+MODELS = ROOT / "public" / "models"
 
 MODEL_CFG = {
     "ppocrv6-tiny": {
         "yml": Path(__file__).parent / "inference_rec.yml",
-        "out": ROOT / "public/models/ppocr_keys_v6_tiny.json",
+        "out": MODELS / "ppocrv6-tiny" / "dict.json",
         "mode": "write",
     },
     "ppocrv6-small": {
         "yml": Path(__file__).parent / "inference_rec_small.yml",
-        "out": ROOT / "public/models/ppocr_keys_v6_full.json",
+        "out": MODELS / "ppocrv6-small" / "dict.json",
+        "mirror": MODELS / "ppocrv6-medium" / "dict.json",
         "mode": "write",
     },
     "ppocrv6-medium": {
         "yml": Path(__file__).parent / "inference_rec_medium.yml",
-        "out": ROOT / "public/models/ppocr_keys_v6_full.json",
+        "out": MODELS / "ppocrv6-medium" / "dict.json",
         "mode": "verify-small",
-        "peer": ROOT / "public/models/ppocr_keys_v6_full.json",
+        "peer": MODELS / "ppocrv6-small" / "dict.json",
     },
 }
 
@@ -49,6 +56,14 @@ def load_chars(yml_path: Path) -> list[str]:
     return chars
 
 
+def write_dict(chars: list[str], out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(chars, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="提取/校验 PP-OCR 字符集")
     parser.add_argument(
@@ -63,18 +78,20 @@ def main() -> None:
     if cfg["mode"] == "write":
         chars = load_chars(cfg["yml"])
         out_path: Path = cfg["out"]
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            json.dumps(chars, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
-        )
+        write_dict(chars, out_path)
         print(f"字符集 {len(chars)} 个字符 -> {out_path}")
+        mirror = cfg.get("mirror")
+        if isinstance(mirror, Path):
+            mirror.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(out_path, mirror)
+            print(f"已同步拷贝 -> {mirror}")
         print(f"前端使用: [''] + chars + [' '] = {len(chars) + 2} 维")
         return
 
-    # medium：不重复写文件，校验与 Small 字典一致；缺 yml 必须非零退出
+    # medium：不重复生成字符表，校验与 Small 一致后确保本档 dict.json 存在
     if args.model == "ppocrv6-medium":
         peer: Path = cfg["peer"]
+        out_path = cfg["out"]
         if not peer.exists():
             raise SystemExit(
                 f"Medium 校验需要先生成 Small 字典: {peer}\n"
@@ -84,13 +101,15 @@ def main() -> None:
         if not yml.exists():
             raise SystemExit(
                 f"缺少 {yml.name}；Medium 必须与 Small 做严格比对，"
-                "不可在缺 yml 时假成功。请在 Phase 2 补齐后再运行。"
+                "不可在缺 yml 时假成功。请先 download_models.sh --model ppocrv6-medium。"
             )
         small_chars = json.loads(peer.read_text(encoding="utf-8"))
         medium_chars = load_chars(yml)
         if medium_chars != small_chars:
             raise SystemExit("Medium 字符集与 Small 不一致")
-        print(f"Medium 字符集与 Small 一致（{len(small_chars)} 字）")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(peer, out_path)
+        print(f"Medium 字符集与 Small 一致（{len(small_chars)} 字）-> {out_path}")
         return
 
     raise SystemExit(f"未实现的模式: {cfg['mode']}")

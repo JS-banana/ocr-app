@@ -5,19 +5,19 @@
       "name": "PP-OCRv6 Tiny",
       "label": "快速",
       "recommended": true,
-      "revision": "2026-08-07",
+      "revision": "2026-08-07-dirs",
       "pipeline": "ppocr-dbnet-ctc",
       "files": {
         "det": {
-          "url": "/models/PP-OCRv6_det_tiny.onnx",
+          "url": "/models/ppocrv6-tiny/det.onnx",
           "sizeBytes": 1780590
         },
         "rec": {
-          "url": "/models/PP-OCRv6_rec_tiny.onnx",
+          "url": "/models/ppocrv6-tiny/rec.onnx",
           "sizeBytes": 4462639
         },
         "dict": {
-          "url": "/models/ppocr_keys_v6_tiny.json",
+          "url": "/models/ppocrv6-tiny/dict.json",
           "sizeBytes": 40967
         }
       },
@@ -38,19 +38,19 @@
       "name": "PP-OCRv6 Small",
       "label": "均衡",
       "recommended": false,
-      "revision": "2026-08-07",
+      "revision": "2026-08-07-dirs",
       "pipeline": "ppocr-dbnet-ctc",
       "files": {
         "det": {
-          "url": "/models/PP-OCRv6_det_small.onnx",
+          "url": "/models/ppocrv6-small/det.onnx",
           "sizeBytes": 9880512
         },
         "rec": {
-          "url": "/models/PP-OCRv6_rec_small.onnx",
+          "url": "/models/ppocrv6-small/rec.onnx",
           "sizeBytes": 21159378
         },
         "dict": {
-          "url": "/models/ppocr_keys_v6_full.json",
+          "url": "/models/ppocrv6-small/dict.json",
           "sizeBytes": 112366
         }
       },
@@ -71,19 +71,19 @@
       "name": "PP-OCRv6 Medium",
       "label": "高精度",
       "recommended": false,
-      "revision": "2026-08-07",
+      "revision": "2026-08-07-dirs",
       "pipeline": "ppocr-dbnet-ctc",
       "files": {
         "det": {
-          "url": "/models/PP-OCRv6_det_medium.onnx",
+          "url": "/models/ppocrv6-medium/det.onnx",
           "sizeBytes": 62032837
         },
         "rec": {
-          "url": "/models/PP-OCRv6_rec_medium.onnx",
+          "url": "/models/ppocrv6-medium/rec.onnx",
           "sizeBytes": 76554979
         },
         "dict": {
-          "url": "/models/ppocr_keys_v6_full.json",
+          "url": "/models/ppocrv6-medium/dict.json",
           "sizeBytes": 112366
         }
       },
